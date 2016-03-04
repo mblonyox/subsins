@@ -162,3 +162,15 @@ body {
     width: 700px;
   }
 }
+
+/*
+ * by Mblonyox
+ */
+
+.title a {
+  color: #111;
+}
+
+.subtle.count {
+  color: #888;
+}
