@@ -3,10 +3,16 @@
 	require 'lib/simple_html_dom.php';
 
 	if (isset($_GET['d'])) {
-		$html = file_get_html('http://v2.subscene.com'.$_GET['d']);
+		if(substr($_GET['d'], 0, 1) !== "/") {
+			die("Error: parameter failed");
+		}
+		$html = file_get_html('http://subscene.com'.$_GET['d']);
+		if(is_null($html->find('a#downloadButton',0))) {
+			die("Error: Subtitle not found");
+		}
 		$dllink = $html->find('a#downloadButton',0)->href;
 		$data = file_get_contents('http://subscene.com'.$dllink);
-		$file_name = trim(str_replace( array('/', '.aspx'), '_', $_GET['d']), '_').'.zip';
+		$file_name = trim(str_replace( '/' , '_', $_GET['d']), '_').'.zip';
 		header("Content-Type: application/zip");
 	    header("Content-Disposition: attachment; filename=$file_name");
 	    header("Content-Length: " . strlen($data));
@@ -16,7 +22,10 @@
 
 	if (isset($_GET['title'])) {
 		$title = $_GET['title'];
-		$html = file_get_html('http://subscene.com/subtitles/' . $title);
+		$cookie = "SortSubtitlesByDate=true; LanguageFilter=13,44; HearingImpaired=";
+		$opts = array('http' => array('header'=> 'Cookie: ' . $cookie .'\r\n'));
+		$context = stream_context_create($opts);
+		$html = file_get_html('http://subscene.com/subtitles/' . $title , false, $context);
 		$byFilm = $html->find('div.byFilm', 0);
 		if (!is_null($byFilm)) {
 			$film = array();
@@ -30,9 +39,38 @@
 			}
 			$film['year'] = $byFilm->find('div.header ul li', 0)->innertext;
 		}
-		$content = $byFilm->find('div.content', 0);
+		$content = $byFilm->find('div.content', 1);
 		if(!is_null($content)){
-
+			$subs = array();
+			foreach ($content->find('tr') as $tr) {
+				if(!is_null($tr->find('td.a1', 0))) {
+					if($tr->find('.positive-icon', 0)) {
+						$rating = 'good';
+					}elseif($tr->find('.bad-icon', 0)) {
+						$rating = 'bad';
+					}else{
+						$rating = 'none';
+					}
+					$url = $tr->find('td.a1 a', 0)->href;
+					$subid = basename($url);
+					$lang = trim($tr->find('td.a1 span', 0)->plaintext);
+					$title = trim($tr->find('td.a1 span', 1)->plaintext);
+					$uploader = trim($tr->find('td.a5 a', 0)->plaintext);
+					$comment = trim($tr->find('td.a6 div', 0)->plaintext);
+					if (array_key_exists($subid, $subs)) {
+						$subs[$subid]['title'] .= "\n" . $title;
+					}else{						
+						$subs[$subid] = array(
+							'url'		=> $url,
+							'lang'		=> $lang,
+							'title'		=> $title,
+							'uploader'	=> $uploader,
+							'comment'	=> $comment,
+							'rating'	=> $rating
+						);
+					}
+				}
+			}
 		}
 	}
 
@@ -167,12 +205,17 @@
 							<button type="submit" class="btn btn-lg btn-default">Go</button>
 						</div>
 						<div class="form-group">
-							<div class="col-sm-4">
+							<div class="col-sm-3">
 								<label class="radio-inline">
-									<input type="radio" name="l" id="langEng" value="en" checked>English
+									<input type="radio" name="l" id="langEng" value="en" checked>English & Indonesia
 								</label>
 							</div>
-							<div class="col-sm-4">
+							<div class="col-sm-3">
+								<label class="radio-inline">
+									<input type="radio" name="l" id="langEng" value="en">English
+								</label>
+							</div>
+							<div class="col-sm-3">
 								<label class="radio-inline">
 									<input type="radio" name="l" id="langId" value="id">Bahasa Indonesia
 								</label>
@@ -199,8 +242,32 @@
 						}
 					}
 */
-
-					if(isset($content)) {
+					if(isset($subs)) {
+						if(empty($subs)) {
+							echo '<hr/><h2>No subtitles found.</h2>';	
+						}else{
+							echo '<hr/><table class="table table-hover"><tr><th>#</th><th>Language</th><th>Release name</th><th>Rating</th><th>Uploader</th><th>Comment</th></tr>';
+							$i = 1;
+							foreach ($subs as $sub) {
+								$l = $sub['lang'];
+								$t = $sub['title'];
+								$u = $sub['url'];
+								$ul = $sub['uploader'];
+								$r = $sub['rating'];
+								$c = $sub['comment'];
+								echo "<tr><td>$i</td><td>$l</td><td><a href='?d=$u'>$t</a></td>";
+								if($r == "good") {
+									echo "<td><p class='text-success'><span class='glyphicon glyphicon-thumbs-up' aria-hidden='true'></span></p></td>";
+								}elseif($r == "bad") {
+									echo "<td><p class='text-danger'><span class='glyphicon glyphicon-thumbs-down' aria-hidden='true'></span></p></td>";				
+								}else{
+									echo "<td><p class='text-warning'><span class='glyphicon glyphicon-option-horizontal' aria-hidden='true'></span></p></td>";
+								}
+								echo "<td>$ul</td><td>$c</td></tr>";
+								$i++;
+							}
+						}
+					}elseif(isset($content)) {
 						echo "<hr/>";
 						echo $content;
 					}
