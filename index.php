@@ -31,12 +31,16 @@
 			$film = array();
 			if (!empty($byFilm->find('div.poster img', 0)->src)) {
 				$film['poster'] = $byFilm->find('div.poster img',0)->src;
+			} else {
+				$film['poster'] = 'N/A';
 			}
-			$film['title'] = $byFilm->find('div.header h2', 0)->plaintext;
 			$imdburl = $byFilm->find('div.header', 0)->find('a.imdb', 0)->href;
 			if (!filter_var($imdburl, FILTER_VALIDATE_URL) === false) {
 				$film['imdb'] = $imdburl;
 			}
+			$byFilm->find('div.header', 0)->find('a.imdb', 0)->outertext = '';
+			$byFilm->find('div.header', 0)->find('a.imdb', 1)->outertext = '';
+			$film['title'] = $byFilm->find('div.header h2', 0)->innertext;
 			$film['year'] = $byFilm->find('div.header ul li', 0)->innertext;
 		}
 		$content = $byFilm->find('div.content', 1);
@@ -99,6 +103,18 @@
 		} catch (Exception $e) {
 			
 		}
+
+		if(isset($_SERVER['PHP_AUTH_USER'])) {
+			$username = $_SERVER['PHP_AUTH_USER'];
+		}else{
+			$username = 'Unknown';
+		}
+
+		$log 	=	"User: ".$_SERVER['HTTP_X_FORWARDED_FOR'].' - '.date("F j, Y, g:i a").PHP_EOL.
+					"Query:".$_GET['s'].PHP_EOL.
+					"Username:".$username.PHP_EOL.
+					"------------------------".PHP_EOL;
+		file_put_contents('./log_'.date("j.n.Y").'.txt', $log, FILE_APPEND);
 	}
 /*
 	if (isset($_GET['q'])) {
@@ -207,7 +223,7 @@
 						<div class="form-group">
 							<div class="col-sm-3">
 								<label class="radio-inline">
-									<input type="radio" name="l" id="langEng" value="en" checked>English & Indonesia
+									<input type="radio" name="l" id="langEng" value="all" checked>English & Indonesia
 								</label>
 							</div>
 							<div class="col-sm-3">
@@ -246,8 +262,8 @@
 						if(empty($subs)) {
 							echo '<hr/><h2>No subtitles found.</h2>';	
 						}else{
-							echo '<hr/><table class="table table-hover"><tr><th>#</th><th>Language</th><th>Release name</th><th>Rating</th><th>Uploader</th><th>Comment</th></tr>';
-							$i = 1;
+							echo '<hr/><div class="poster"><img src="'.$film['poster'].'"></div><div class="info"><h2>'.$film['title'].'</h2></div>';
+							echo '<hr/><table class="table table-hover table-subtitles"><thead><tr><th class="col-sm-1">Language</th><th class="col-sm-4">Release name</th><th class="col-sm-1" >Rating</th><th class="col-sm-2">Uploader</th><th class="col-sm-4">Comment</th></tr></thead><tbody>';
 							foreach ($subs as $sub) {
 								$l = $sub['lang'];
 								$t = $sub['title'];
@@ -255,7 +271,7 @@
 								$ul = $sub['uploader'];
 								$r = $sub['rating'];
 								$c = $sub['comment'];
-								echo "<tr><td>$i</td><td>$l</td><td><a href='?d=$u'>$t</a></td>";
+								echo "<tr><td>$l</td><td><a href='?d=$u'>$t</a></td>";
 								if($r == "good") {
 									echo "<td><p class='text-success'><span class='glyphicon glyphicon-thumbs-up' aria-hidden='true'></span></p></td>";
 								}elseif($r == "bad") {
@@ -264,8 +280,8 @@
 									echo "<td><p class='text-warning'><span class='glyphicon glyphicon-option-horizontal' aria-hidden='true'></span></p></td>";
 								}
 								echo "<td>$ul</td><td>$c</td></tr>";
-								$i++;
 							}
+							echo '</tbody></table>';
 						}
 					}elseif(isset($content)) {
 						echo "<hr/>";

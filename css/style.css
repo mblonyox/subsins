@@ -159,7 +159,7 @@ body {
   .masthead,
   .mastfoot,
   .cover-container {
-    width: 700px;
+    width: 900px;
   }
 }
 
@@ -173,4 +173,12 @@ body {
 
 .subtle.count {
   color: #888;
+}
+
+.table-subtitles {
+  table-layout: fixed;
+}
+
+.table-subtitles th {
+  text-align: center;
 }
