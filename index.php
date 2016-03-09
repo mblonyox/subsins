@@ -1,17 +1,25 @@
 <?php
 	
 	require 'lib/simple_html_dom.php';
+	require 'lib/php_fast_cache.php';
 
 	if (isset($_GET['d'])) {
 		if(substr($_GET['d'], 0, 1) !== "/") {
 			die("Error: parameter failed");
 		}
-		$html = file_get_html('http://subscene.com'.$_GET['d']);
-		if(is_null($html->find('a#downloadButton',0))) {
-			die("Error: Subtitle not found");
+		$cachekeyword = 'download' . md5($_GET['d']);
+		$cache = phpFastCache::get($cachekeyword);
+		if ($cache == null) {
+			$html = file_get_html('http://subscene.com'.$_GET['d']);
+			if(is_null($html->find('a#downloadButton',0))) {
+				die("Error: Subtitle not found");
+			}
+			$dllink = $html->find('a#downloadButton',0)->href;
+			$data = file_get_contents('http://subscene.com'.$dllink);
+			phpFastCache::set($cachekeyword, $data, 3600*24);
+		}else{
+			$data = $cache;
 		}
-		$dllink = $html->find('a#downloadButton',0)->href;
-		$data = file_get_contents('http://subscene.com'.$dllink);
 		$file_name = trim(str_replace( '/' , '_', $_GET['d']), '_').'.zip';
 		header("Content-Type: application/zip");
 	    header("Content-Disposition: attachment; filename=$file_name");
@@ -22,59 +30,72 @@
 
 	if (isset($_GET['title'])) {
 		$title = $_GET['title'];
-		$cookie = "SortSubtitlesByDate=true; LanguageFilter=13,44; HearingImpaired=";
-		$opts = array('http' => array('header'=> 'Cookie: ' . $cookie .'\r\n'));
-		$context = stream_context_create($opts);
-		$html = file_get_html('http://subscene.com/subtitles/' . $title , false, $context);
-		$byFilm = $html->find('div.byFilm', 0);
-		if (!is_null($byFilm)) {
-			$film = array();
-			if (!empty($byFilm->find('div.poster img', 0)->src)) {
-				$film['poster'] = $byFilm->find('div.poster img',0)->src;
-			} else {
-				$film['poster'] = 'N/A';
-			}
-			$imdburl = $byFilm->find('div.header', 0)->find('a.imdb', 0)->href;
-			if (!filter_var($imdburl, FILTER_VALIDATE_URL) === false) {
-				$film['imdb'] = $imdburl;
-			}
-			$byFilm->find('div.header', 0)->find('a.imdb', 0)->outertext = '';
-			$byFilm->find('div.header', 0)->find('a.imdb', 1)->outertext = '';
-			$film['title'] = $byFilm->find('div.header h2', 0)->innertext;
-			$film['year'] = $byFilm->find('div.header ul li', 0)->innertext;
+		if(isset($_COOKIE['language'])) {
+			$langfilter = $_COOKIE['language'];
+		}else{
+			$langfilter = '13,44';
 		}
-		$content = $byFilm->find('div.content', 1);
-		if(!is_null($content)){
-			$subs = array();
-			foreach ($content->find('tr') as $tr) {
-				if(!is_null($tr->find('td.a1', 0))) {
-					if($tr->find('.positive-icon', 0)) {
-						$rating = 'good';
-					}elseif($tr->find('.bad-icon', 0)) {
-						$rating = 'bad';
-					}else{
-						$rating = 'none';
-					}
-					$url = $tr->find('td.a1 a', 0)->href;
-					$subid = basename($url);
-					$lang = trim($tr->find('td.a1 span', 0)->plaintext);
-					$title = trim($tr->find('td.a1 span', 1)->plaintext);
-					$uploader = trim($tr->find('td.a5 a', 0)->plaintext);
-					$comment = trim($tr->find('td.a6 div', 0)->plaintext);
-					if (array_key_exists($subid, $subs)) {
-						$subs[$subid]['title'] .= "\n" . $title;
-					}else{						
-						$subs[$subid] = array(
-							'url'		=> $url,
-							'lang'		=> $lang,
-							'title'		=> $title,
-							'uploader'	=> $uploader,
-							'comment'	=> $comment,
-							'rating'	=> $rating
-						);
+		$cookie = "SortSubtitlesByDate=true; LanguageFilter=$langfilter; HearingImpaired=";
+		$cachekeyword = 'title' . md5($title . $cookie);
+		$cache = phpFastCache::get($cachekeyword);
+		if($cache == null) {
+			$opts = array('http' => array('header'=> 'Cookie: ' . $cookie .'\r\n'));
+			$context = stream_context_create($opts);
+			$html = file_get_html('http://subscene.com/subtitles/' . $title , false, $context);
+			$byFilm = $html->find('div.byFilm', 0);
+			if (!is_null($byFilm)) {
+				$film = array();
+				if (!empty($byFilm->find('div.poster img', 0)->src)) {
+					$film['poster'] = $byFilm->find('div.poster img',0)->src;
+				} else {
+					$film['poster'] = 'N/A';
+				}
+				$imdburl = $byFilm->find('div.header', 0)->find('a.imdb', 0)->href;
+				if (!filter_var($imdburl, FILTER_VALIDATE_URL) === false) {
+					$film['imdb'] = $imdburl;
+				}
+				$byFilm->find('div.header', 0)->find('a.imdb', 0)->outertext = '';
+				$byFilm->find('div.header', 0)->find('a.imdb', 1)->outertext = '';
+				$film['title'] = $byFilm->find('div.header h2', 0)->innertext;
+				$film['year'] = $byFilm->find('div.header ul li', 0)->innertext;
+			}
+			$content = $byFilm->find('div.content', 1);
+			if(!is_null($content)){
+				$subs = array();
+				foreach ($content->find('tr') as $tr) {
+					if(!is_null($tr->find('td.a1', 0))) {
+						if($tr->find('.positive-icon', 0)) {
+							$rating = 'good';
+						}elseif($tr->find('.bad-icon', 0)) {
+							$rating = 'bad';
+						}else{
+							$rating = 'none';
+						}
+						$url = $tr->find('td.a1 a', 0)->href;
+						$subid = basename($url);
+						$lang = trim($tr->find('td.a1 span', 0)->plaintext);
+						$title = trim($tr->find('td.a1 span', 1)->plaintext);
+						$uploader = trim($tr->find('td.a5 a', 0)->plaintext);
+						$comment = trim($tr->find('td.a6 div', 0)->plaintext);
+						if (array_key_exists($subid, $subs)) {
+							$subs[$subid]['title'] .= "\n" . $title;
+						}else{						
+							$subs[$subid] = array(
+								'url'		=> $url,
+								'lang'		=> $lang,
+								'title'		=> $title,
+								'uploader'	=> $uploader,
+								'comment'	=> $comment,
+								'rating'	=> $rating
+							);
+						}
 					}
 				}
 			}
+			phpFastCache::set($cachekeyword, array( 'subs' => $subs, 'film' => $film), 3600);
+		}else{
+			$subs = $cache['subs'];
+			$film = $cache['film'];
 		}
 	}
 
@@ -220,23 +241,6 @@
 							</div>
 							<button type="submit" class="btn btn-lg btn-default">Go</button>
 						</div>
-						<div class="form-group">
-							<div class="col-sm-3">
-								<label class="radio-inline">
-									<input type="radio" name="l" id="langEng" value="all" checked>English & Indonesia
-								</label>
-							</div>
-							<div class="col-sm-3">
-								<label class="radio-inline">
-									<input type="radio" name="l" id="langEng" value="en">English
-								</label>
-							</div>
-							<div class="col-sm-3">
-								<label class="radio-inline">
-									<input type="radio" name="l" id="langId" value="id">Bahasa Indonesia
-								</label>
-							</div>
-						</div>
 					</form>
 					<?php
 /*					if(isset($subs)) {
@@ -262,7 +266,29 @@
 						if(empty($subs)) {
 							echo '<hr/><h2>No subtitles found.</h2>';	
 						}else{
-							echo '<hr/><div class="poster"><img src="'.$film['poster'].'"></div><div class="info"><h2>'.$film['title'].'</h2></div>';
+							echo '<hr/><div class="poster"><img src="'.$film['poster'].'"></div><div class="info"><h2>'.$film['title'].'</h2></div>'; ?>
+					<hr/>
+					<form class="form-horizontal">
+						<div class="form-group">
+							<label class="col-sm-3 control-label">Language selector :</label>
+							<div class="col-sm-3">
+								<label class="radio-inline">
+									<input type="radio" name="l" id="langEng" value="13,44" checked>English & Indonesia
+								</label>
+							</div>
+							<div class="col-sm-3">
+								<label class="radio-inline">
+									<input type="radio" name="l" id="langEng" value="13" <?php if(isset($_COOKIE['language']) && $_COOKIE['language'] == '13') {echo 'checked';} ?>>English
+								</label>
+							</div>
+							<div class="col-sm-3">
+								<label class="radio-inline">
+									<input type="radio" name="l" id="langId" value="44" <?php if(isset($_COOKIE['language']) && $_COOKIE['language'] == '44') {echo 'checked';} ?>>Bahasa Indonesia
+								</label>
+							</div>
+						</div>
+					</form> 
+							<?php
 							echo '<hr/><table class="table table-hover table-subtitles"><thead><tr><th class="col-sm-1">Language</th><th class="col-sm-4">Release name</th><th class="col-sm-1" >Rating</th><th class="col-sm-2">Uploader</th><th class="col-sm-4">Comment</th></tr></thead><tbody>';
 							foreach ($subs as $sub) {
 								$l = $sub['lang'];
@@ -271,7 +297,7 @@
 								$ul = $sub['uploader'];
 								$r = $sub['rating'];
 								$c = $sub['comment'];
-								echo "<tr><td>$l</td><td><a href='?d=$u'>$t</a></td>";
+								echo "<tr class='clickable-row' data-href='?d=$u'><td>$l</td><td><a href='#'>$t</a></td>";
 								if($r == "good") {
 									echo "<td><p class='text-success'><span class='glyphicon glyphicon-thumbs-up' aria-hidden='true'></span></p></td>";
 								}elseif($r == "bad") {
@@ -296,5 +322,16 @@
 	</div>
 	<script src="js/jquery-2.2.1.min.js"></script>
 	<script src="js/bootstrap.min.js"></script>
+	<script type="text/javascript">
+		$(document).ready(function() {
+		    $('input[type=radio][name=l]').change(function() {
+		    	document.cookie = "language=" + this.value;
+		    	location.reload();
+		    });
+		    $(".clickable-row").click(function() {
+	        	window.document.location = $(this).data("href");
+	   		});
+		});
+	</script>
 </body>
 </html>
